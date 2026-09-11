@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Outpatient Scheduler — Dashboard</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;background:#f6f9fb;color:#0b2545;margin:0;padding:20px}
+    .container{max-width:1100px;margin:0 auto}
+    h1{color:#063a6f}
+    .summary{background:#fff;border-radius:8px;padding:16px;box-shadow:0 1px 4px rgba(11,37,69,0.08);margin-bottom:16px}
+    table{width:100%;border-collapse:collapse;background:#fff}
+    th,td{padding:8px 10px;border-bottom:1px solid #eef3f7;text-align:left}
+    th{background:#f0f6fa;color:#063a6f}
+    .capacity{font-weight:600}
+    .legend{display:flex;gap:8px;margin-top:8px}
+    .badge{padding:6px 10px;border-radius:6px;font-size:13px}
+    .empty{background:#e9f5ff;color:#034f84}
+    .booked{background:#fff3e0;color:#7a4700}
+    .overbook{background:#fdecea;color:#7a1b1b}
+    .actions{margin-top:12px}
+    .note{font-size:13px;color:#234}
+    .muted{color:#556}
+    button{padding:6px 10px;border-radius:6px;border:1px solid #bbb;background:#fff;cursor:pointer}
+    .btn-admin{background:#063a6f;color:#fff;border-color:#063a6f}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Outpatient Scheduler — Dashboard</h1>
+    <div class="summary">
+      <p class="note">This page shows upcoming appointment slots and status for the next 7 days. Non-technical guidance and simple staff actions are below.</p>
+      <div class="legend">
+        <div class="badge empty">Available</div>
+        <div class="badge booked">Booked</div>
+        <div class="badge overbook">Full / Suggested</div>
+      </div>
+      <p class="muted">Tips: if a time is full, offer the suggested nearby time. For urgent patients, staff can use the priority booking option (requires staff token). To increase capacity, staff can update capacity for a slot.</p>
+      <div style="margin-top:10px">
+        <button class="btn-admin" onclick="document.getElementById('help-modal').style.display='block'">Help / Mitigation steps</button>
+      </div>
+    </div>
+
+    <!-- Help modal (simple, accessible) -->
+    <div id="help-modal" role="dialog" aria-labelledby="help-title" aria-modal="true" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(11,37,69,0.6);z-index:9999;padding:40px;box-sizing:border-box;">
+      <div style="max-width:900px;margin:0 auto;background:#fff;border-radius:8px;padding:20px;box-shadow:0 6px 24px rgba(11,37,69,0.3);position:relative;">
+        <h2 id="help-title">Quick mitigation steps for staff (plain language)</h2>
+        <p style="margin-top:6px;color:#334">These short steps help manage scheduling issues and explain options for patients.</p>
+        <ol style="color:#234">
+          <li><strong>If a requested slot is full</strong>: offer the suggested nearby time shown on this page. Say: "We can offer an alternative at [time], would that work?"</li>
+          <li><strong>For urgent patients</strong>: use <em>Priority (staff)</em> to place them earlier. Only use for clinical urgency — this may replace a lower-priority booking.</li>
+          <li><strong>When demand is high</strong>: increase capacity for a busy slot via <em>Set capacity (staff)</em>. Explain: "We've increased capacity to accommodate more patients that day."</li>
+          <li><strong>If many patients are waiting</strong>: export the CSV and review recent bookings for reallocation (use spreadsheet sorting by time).</li>
+          <li><strong>Record decisions</strong>: keep a simple log (paper or electronic) of priority preemptions and capacity changes so clinicians understand why slots changed.</li>
+          <li><strong>Security</strong>: keep the staff token private — do not paste it into email or public chat. Use browser Login/Logout to protect token in the session.</li>
+        </ol>
+        <p style="margin-top:8px;color:#556">Need more support? Contact the scheduling lead or call the technical support channel and provide a screenshot of this page.</p>
+        <div style="text-align:right;margin-top:12px">
+          <button onclick="document.getElementById('help-modal').style.display='none'">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="summary" id="stats">Loading summary…</div>
+
+    <div style="margin-bottom:8px;display:flex;align-items:center;gap:12px">
+      <div id="auth-area"></div>
+      <div>
+        <button onclick="exportCSV()" class="btn-admin">Export CSV (staff)</button>
+        <span style="margin-left:8px;color:#556;font-size:13px">(Exports schedule as CSV — staff token required)</span>
+      </div>
+    </div>
+
+    <table id="slots-table" aria-live="polite">
+      <thead>
+        <tr><th>Slot time</th><th>Capacity</th><th>Bookings</th><th>Status</th><th>Actions</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <div class="actions">
+      <p class="note">For non-technical users: click "Book" to schedule a patient. Staff-only controls (priority booking, set capacity, export) require a token. Ask your admin for the token.</p>
+    </div>
+  </div>
+
+<script>
+function getToken(){ return sessionStorage.getItem('adminToken'); }
+function setToken(t){ if(t){ sessionStorage.setItem('adminToken', t); } updateAuthUI(); }
+function clearToken(){ sessionStorage.removeItem('adminToken'); updateAuthUI(); }
+function updateAuthUI(){
+  const btnArea = document.getElementById('auth-area');
+  if(!btnArea) return;
+  const token = getToken();
+  if(token){
+    btnArea.innerHTML = `Logged in (token saved). <button onclick="clearToken()" class="btn-admin">Logout</button>`;
+  } else {
+    btnArea.innerHTML = `<input id="token-input" placeholder="Staff token" style="padding:6px;border-radius:4px;border:1px solid #ccc"><button onclick="doLogin()" style="margin-left:6px" class="btn-admin">Login</button>`;
+  }
+}
+function doLogin(){
+  const v = document.getElementById('token-input')?.value;
+  if(!v){ alert('Enter token'); return; }
+  setToken(v);
+  alert('Token saved to session for this browser session');
+}
+
+async function refresh(){
+  try{
+    const r = await fetch('/slots');
+    const slots = await r.json();
+    const tbody = document.querySelector('#slots-table tbody');
+    tbody.innerHTML = '';
+    let total = slots.length; let bookedCount = 0;
+    for(const s of slots){
+      const tr = document.createElement('tr');
+      const time = new Date(s.time).toLocaleString();
+      const cap = s.capacity;
+      const bookings = s.bookings.length;
+      const status = bookings < cap ? 'Available' : (bookings == cap ? 'Booked' : 'Overbooked');
+      if(bookings >= cap) bookedCount++;
+      tr.innerHTML = `<td>${time}</td><td class="capacity">${cap}</td><td>${bookings}</td><td>${status}</td><td></td>`;
+      const actionsTd = tr.querySelector('td:last-child');
+      const bookBtn = document.createElement('button');
+      bookBtn.textContent = 'Book';
+      bookBtn.onclick = ()=>bookSlot(s.id);
+      actionsTd.appendChild(bookBtn);
+
+      const priorityBtn = document.createElement('button');
+      priorityBtn.textContent = 'Priority (staff)';
+      priorityBtn.style.marginLeft='6px';
+      priorityBtn.className='btn-admin';
+      priorityBtn.onclick = ()=>priorityBook(s.id);
+      actionsTd.appendChild(priorityBtn);
+
+      const capBtn = document.createElement('button');
+      capBtn.textContent = 'Set capacity (staff)';
+      capBtn.style.marginLeft='6px';
+      capBtn.onclick = ()=>setCapacity(s.id);
+      actionsTd.appendChild(capBtn);
+
+      if(bookings < cap) actionsTd.querySelector('button').classList.add('empty');
+      tbody.appendChild(tr);
+    }
+    const util = ((slots.reduce((a,s)=>a+s.bookings.length,0))/(total||1)*100).toFixed(1);
+    document.getElementById('stats').innerHTML = `<strong>Slots:</strong> ${total} &nbsp; <strong>Booked slots:</strong> ${bookedCount} &nbsp; <strong>Utilization:</strong> ${util}%`;
+  }catch(e){
+    document.getElementById('stats').textContent = 'Error loading slots';
+  }
+}
+
+async function bookSlot(slot_id){
+  const name = prompt('Patient name:');
+  if(!name) return;
+  const r = await fetch('/book', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({slot_id, patient: name})});
+  const j = await r.json();
+  if(r.status==201){ alert('Booked successfully'); }
+  else if(r.status==409){ alert('Slot full. Suggested: '+(j.suggested?new Date(j.suggested.time).toLocaleString():'none')); }
+  else alert('Error: '+(j.error||JSON.stringify(j)));
+  refresh();
+}
+
+async function priorityBook(slot_id){
+  const name = prompt('Patient name (priority booking):');
+  if(!name) return;
+  const pr = prompt('Priority number (higher = more urgent). Staff token required.');
+  if(pr===null) return;
+  let token = getToken();
+  if(!token){
+    const entered = prompt('Staff token (will be saved for this browser session):');
+    if(!entered) return;
+    if(confirm('Save token in browser session for this session?')) setToken(entered);
+    token = entered;
+  }
+  const r = await fetch('/book_priority', {method:'POST', headers:{'Content-Type':'application/json','X-Admin-Token':token}, body: JSON.stringify({slot_id, patient: name, priority: pr})});
+  const j = await r.json();
+  if(r.status==201) alert('Priority booking successful');
+  else if(r.status==401) alert('Unauthorized: invalid staff token');
+  else if(r.status==409) alert('Full - suggested: '+(j.suggested?new Date(j.suggested.time).toLocaleString():'none'));
+  else alert('Error: '+JSON.stringify(j));
+  refresh();
+}
+
+async function setCapacity(slot_id){
+  const cap = prompt('New capacity (number, staff only)');
+  if(!cap) return;
+  let token = getToken();
+  if(!token){
+    const entered = prompt('Staff token (will be saved for this browser session):');
+    if(!entered) return;
+    if(confirm('Save token in browser session for this session?')) setToken(entered);
+    token = entered;
+  }
+  const r = await fetch('/set_capacity', {method:'POST', headers:{'Content-Type':'application/json','X-Admin-Token':token}, body: JSON.stringify({slot_id, capacity: cap})});
+  const j = await r.json();
+  if(r.status==200) alert('Capacity updated');
+  else if(r.status==401) alert('Unauthorized: invalid staff token');
+  else alert('Error: '+JSON.stringify(j));
+  refresh();
+}
+
+async function exportCSV(){
+  let token = getToken();
+  if(!token){
+    const entered = prompt('Staff token to export CSV (will be saved for this browser session):');
+    if(!entered) return;
+    if(confirm('Save token in browser session for this session?')) setToken(entered);
+    token = entered;
+  }
+  const r = await fetch('/export', {method:'GET', headers:{'X-Admin-Token':token}});
+  if(r.status==200){
+    const blob = await r.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download='schedule_export.csv'; document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url);
+  } else if(r.status==401){ alert('Unauthorized: invalid staff token'); }
+  else { const j=await r.json(); alert('Error: '+JSON.stringify(j)); }
+}
+
+document.addEventListener('DOMContentLoaded', function(){ updateAuthUI(); refresh(); setInterval(refresh,5000); });
+</script>
+</body>
+</html>

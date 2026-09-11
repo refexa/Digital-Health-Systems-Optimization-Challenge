@@ -1,0 +1,13 @@
+Reflection video script (2-3 minutes)
+
+Hello — I’m [Your Name]. I participated in the Digital Health Systems Optimization Challenge where I worked as a Digital Health Systems Strategist.
+
+In this short reflection, I’ll cover three points:
+
+1) What I did: I analyzed an outpatient appointment workflow, identified bottlenecks (inefficient slot allocation, lack of prioritization), and designed a digital-first redesign with a scheduling service that supports dynamic capacity and priority booking.
+
+2) Key takeaways: Systems thinking + simple automation yields measurable improvements. Prioritization and nearest-available suggestions reduce patient wait and improve utilization. Persisting state and testing ensure reliability.
+
+3) How I’ll apply it forward: I’ll prototype similar scheduling or triage modules, measure before/after metrics (waiting time, utilization), and iterate based on real-world constraints.
+
+Thank you — I look forward to applying these approaches to real healthcare settings.
